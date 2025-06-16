@@ -1,73 +1,77 @@
-// server.js
 import express from 'express';
-import { fileURLToPath } from 'url';
-import { dirname } from 'path';
+import { createServer } from 'http';
 import pkg from 'whatsapp-web.js';
-import qrcode from 'qrcode-terminal';
-import fs from 'fs';
+import qrcode from 'qrcode';
+import cors from 'cors';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
-const { Client, LocalAuth } = pkg;
+const { Client, LocalAuth, MessageMedia } = pkg;
+
+// Path setup for ES modules
 const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+const __dirname = path.dirname(__filename);
 
-// Express server to keep it alive on Render
 const app = express();
-app.get('/', (req, res) => {
-    res.send('🌐 NetHunter Mini is running.');
-});
-app.listen(process.env.PORT || 3000, () => {
-    console.log('🟢 Web server started');
-});
+const server = createServer(app);
+app.use(cors());
+app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.json());
 
-// WhatsApp client setup
+let qrImage = null;
+
 const client = new Client({
     authStrategy: new LocalAuth(),
     puppeteer: {
-        args: ['--no-sandbox', '--disable-setuid-sandbox'],
-        headless: true
-    }
+        args: ['--no-sandbox'],
+    },
 });
 
-client.on('qr', qr => {
-    qrcode.generate(qr, { small: true });
-    console.log('📸 QR code ready — scan it in WhatsApp');
+client.on('qr', (qr) => {
+    qrcode.toDataURL(qr, (err, url) => {
+        qrImage = url;
+        console.log('✅ QR Code updated.');
+    });
 });
 
 client.on('ready', () => {
-    console.log('✅ Client is ready and logged in');
+    console.log('🤖 Bot is ready!');
 });
 
 client.on('message_create', async (msg) => {
-    if (!msg.body.startsWith("sudo ")) return;
+    if (!msg.fromMe) return;
+    const text = msg.body.toLowerCase();
 
-    const command = msg.body.slice(5).trim().toLowerCase();
-    console.log(`📩 Command received: ${command}`);
-
-    let output = await handleCommand(command, msg);
-
-    try {
-        await msg.edit(`📟 *sudo ${command}*\n\n${output}`);
-    } catch (err) {
-        console.error("❌ Could not edit message:", err);
+    if (text.startsWith('sudo ping')) {
+        await msg.edit('🟢 Pong from Nethunter.');
+    } else if (text.startsWith('sudo hello')) {
+        await msg.edit('👋 Hello! I am *Nethunter Mini*.');
+    } else if (text.startsWith('sudo time')) {
+        const now = new Date().toLocaleString();
+        await msg.edit(`🕒 Server time: ${now}`);
     }
 });
 
-async function handleCommand(command, msg) {
-    switch (command) {
-        case 'hello':
-            return "👋 Hello from NetHunter Mini!";
-        case 'time':
-            return `🕒 Current time: ${new Date().toLocaleTimeString()}`;
-        case 'date':
-            return `📅 Today's date: ${new Date().toDateString()}`;
-        case 'whoami':
-            const contact = await msg.getContact();
-            return `🙍 You are: ${contact.pushname || contact.number}`;
-        case 'help':
-            return `🧰 Available commands:\n• sudo hello\n• sudo time\n• sudo date\n• sudo whoami\n• sudo help`;
-        default:
-            return "⚠️ Unknown command. Type `sudo help` for options.";
+client.on('message', async (msg) => {
+    if (msg.body.toLowerCase().includes('hi') || msg.body.toLowerCase().includes('hello')) {
+        await msg.reply('⚠️ I am currently unavailable. This is an auto-reply from Nethunter Mini.');
     }
-}
+});
 
 client.initialize();
+
+app.get('/generate-qr', (req, res) => {
+    if (qrImage) {
+        res.json({ qr: qrImage });
+    } else {
+        res.status(202).json({ message: 'QR not ready yet.' });
+    }
+});
+
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+server.listen(3000, () => {
+    console.log('🚀 Server running on port 3000');
+});
